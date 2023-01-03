@@ -1,4 +1,4 @@
-package errors
+package errarr
 
 import (
 	"errors"
@@ -16,14 +16,20 @@ func NewErrors() *Errors {
 }
 
 // Append err to el.
-func (es *Errors) Append(err error) {
-	if err == nil {
-		return
+func (es *Errors) Append(errs ...error) *Errors {
+	if len(errs) == 0 {
+		return es
 	}
-	if errs, ok := err.(*Errors); ok {
-		*es = append(*es, (*errs)...)
+	for _, err := range errs {
+		if err == nil {
+			continue
+		}
+		if errs, ok := err.(*Errors); ok {
+			*es = append(*es, (*errs)...)
+		}
+		*es = append(*es, err)
 	}
-	*es = append(*es, err)
+	return es
 }
 
 func (es *Errors) Error() string {
