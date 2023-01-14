@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/alauda/kube-supv/pkg/utils"
 	"github.com/pkg/errors"
 )
 
@@ -87,14 +88,7 @@ func NewInstallRecord(manifest *Manifest, recordDir string) *InstallRecord {
 
 func IsInstalled(recordDir, name string) (bool, error) {
 	recordPath := recordPath(recordDir, name)
-	_, err := os.Stat(recordPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
+	return utils.IsFileExist(recordPath)
 }
 func LoadInstallRecord(recordDir, name string) (*InstallRecord, error) {
 	recordPath := recordPath(recordDir, name)
@@ -129,7 +123,7 @@ func (r *InstallRecord) Save() error {
 	recordDir := filepath.FromSlash(r.recordDir)
 	recordPath := filepath.Join(recordDir, fmt.Sprintf("%s.json", r.Name))
 
-	if err := MakeParentDir(recordPath); err != nil {
+	if err := utils.MakeParentDir(recordPath); err != nil {
 		return errors.Wrapf(err, `make dir for "%s"`, recordPath)
 	}
 

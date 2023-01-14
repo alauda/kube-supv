@@ -1,12 +1,7 @@
 package errarr
 
 import (
-	"errors"
 	"strings"
-)
-
-var (
-	ErrNeedStdOut = errors.New("need stdout")
 )
 
 type Errors []error

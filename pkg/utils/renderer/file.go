@@ -2,8 +2,8 @@ package renderer
 
 import (
 	"fmt"
-	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/pkg/errors"
 	"github.com/spf13/afero"
@@ -20,15 +20,9 @@ type FileFuncs struct {
 }
 
 func (f *FileFuncs) Read(path string) (string, error) {
-	inFile, err := f.fs.OpenFile(path, os.O_RDONLY, 0)
+	bytes, err := os.ReadFile(filepath.FromSlash(path))
 	if err != nil {
-		return "", errors.Wrapf(err, "failed to open %s", path)
-	}
-	defer inFile.Close()
-	bytes, err := io.ReadAll(inFile)
-	if err != nil {
-		err = errors.Wrapf(err, "read failed for %s", path)
-		return "", err
+		return "", errors.Wrapf(err, "read file %s", path)
 	}
 	return string(bytes), nil
 }

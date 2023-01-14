@@ -19,6 +19,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/alauda/kube-supv/pkg/utils"
 )
 
 // TODO(bradfitz): this was copied from x/build/cmd/buildlet/buildlet.go
@@ -74,7 +76,7 @@ func untar(r io.Reader, dir string) (err error) {
 			// write will fail with the same error.
 			dir := filepath.Dir(abs)
 			if !madeDir[dir] {
-				if err := os.MkdirAll(filepath.Dir(abs), 0755); err != nil {
+				if err := utils.MakeDir(filepath.Dir(abs)); err != nil {
 					return err
 				}
 				madeDir[dir] = true
@@ -126,7 +128,7 @@ func untar(r io.Reader, dir string) (err error) {
 			}
 			nFiles++
 		case mode.IsDir():
-			if err := os.MkdirAll(abs, 0755); err != nil {
+			if err := utils.MakeDir(abs); err != nil {
 				return err
 			}
 			madeDir[abs] = true

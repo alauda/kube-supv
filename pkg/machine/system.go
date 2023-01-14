@@ -1,7 +1,6 @@
-package machineinfo
+package machine
 
 import (
-	"errors"
 	"os"
 	"os/exec"
 	"strconv"
@@ -10,6 +9,7 @@ import (
 	"unsafe"
 
 	"github.com/alauda/kube-supv/pkg/utils"
+	"github.com/pkg/errors"
 )
 
 type SELinuxStatus string
@@ -62,7 +62,7 @@ func (i *SystemInfo) exploreSELinux() error {
 	} else {
 		ret, err := utils.Exec(cmd)
 		if err != nil {
-			return err
+			return errors.Wrap(err, `getenforce`)
 		}
 		i.SELinux = SELinuxStatus(ret)
 	}
@@ -73,11 +73,11 @@ func (i *SystemInfo) exploreApparmor() error {
 	const path = "/sys/module/apparmor/parameters/enabled"
 	ret, err := os.ReadFile(path)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+		if os.IsNotExist(err) {
 			i.Apparmor = false
 			return nil
 		}
-		return err
+		return errors.Wrapf(err, `read "%s"`, path)
 	}
 	i.Apparmor = strings.TrimSpace(string(ret)) == "Y"
 	return nil
@@ -87,7 +87,11 @@ func (i *SystemInfo) exploreSwap() error {
 	const path = "/proc/swaps"
 	ret, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		if os.IsNotExist(err) {
+			i.Swap = false
+			return nil
+		}
+		return errors.Wrapf(err, `read "%s"`, path)
 	}
 	i.Swap = len(utils.Lines(strings.TrimSpace(string(ret)))) > 1
 	return nil
@@ -95,14 +99,15 @@ func (i *SystemInfo) exploreSwap() error {
 
 func (i *SystemInfo) exploreLongBit() error {
 	const cmd = "getconf"
+	const arg = "LONG_BIT"
 	if utils.CommandExist(cmd) {
-		ret, err := utils.Exec(cmd)
+		ret, err := utils.Exec(cmd, arg)
 		if err != nil {
-			return err
+			return errors.Wrapf(err, `%s %s`, cmd, arg)
 		}
 		bits, err := strconv.Atoi(ret)
 		if err != nil {
-			return err
+			return errors.Wrapf(err, `convert %s to int`, ret)
 		}
 		i.LongBit = bits
 	} else {
@@ -120,7 +125,7 @@ func (i *SystemInfo) exploreTime() error {
 func (i *SystemInfo) exploreTimezone() error {
 	location, err := time.LoadLocation("Local")
 	if err != nil {
-		return err
+		return errors.Wrap(err, `time.LoadLoaction Local`)
 	}
 	i.Timezone = location.String()
 	return nil
@@ -129,13 +134,29 @@ func (i *SystemInfo) exploreTimezone() error {
 func (i *SystemInfo) exploreHostname() error {
 	hostname, err := os.Hostname()
 	if err != nil {
-		return err
+		return errors.Wrap(err, `os.Hostname`)
 	}
 	i.Hostname = hostname
 	return nil
 }
 
-var necessaryTools = []string{}
+var necessaryTools = []string{
+	"sysctl",
+	"swapoff",
+	"sed",
+	"getconf",
+	"ss",
+	"grep",
+	"id",
+	"modinfo",
+	"ip",
+	"awk",
+	"iptables",
+	"tar",
+	"gzip",
+	"runc",
+	"bash",
+}
 
 func (i *SystemInfo) exploreTools() error {
 	if i.Tools == nil {
@@ -150,7 +171,11 @@ func (i *SystemInfo) exploreTools() error {
 	return nil
 }
 
-var importantPathes = []string{}
+var importantPathes = []string{
+	"/etc/kubernetes/manifests",
+	"/var/lib/etcd",
+	"/var/lib/kubelet",
+}
 
 func (i *SystemInfo) explorePathes() error {
 	if i.Pathes == nil {
@@ -159,12 +184,18 @@ func (i *SystemInfo) explorePathes() error {
 	for _, path := range importantPathes {
 		info, err := os.Stat(path)
 		if err != nil {
-			i.Pathes[path] = PathNotExist
-		}
-		if info.IsDir() {
-			i.Pathes[path] = PathExistDir
+			if os.IsNotExist(err) {
+				i.Pathes[path] = PathNotExist
+			} else {
+				return errors.Wrapf(err, `stat "%s"`, path)
+			}
+
 		} else {
-			i.Pathes[path] = PathExistFile
+			if info.IsDir() {
+				i.Pathes[path] = PathExistDir
+			} else {
+				i.Pathes[path] = PathExistFile
+			}
 		}
 	}
 	return nil

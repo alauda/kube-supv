@@ -25,6 +25,7 @@ func NewTCPServer(addr string, handler TCPHandler) (io.Closer, error) {
 		addr:     addr,
 		listener: listener,
 		stop:     make(chan bool),
+		handler:  handler,
 	}
 	go s.run()
 	return s, nil

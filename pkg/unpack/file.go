@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/alauda/kube-supv/pkg/utils"
 	"github.com/pkg/errors"
 )
 
@@ -38,61 +39,75 @@ func (i *fileInstaller) Install(f *File) (*InstallFile, error) {
 
 type srcHandler func(srcReader io.ReadCloser, filename string) (io.ReadCloser, error)
 
-func (i *fileInstaller) InstallWithHandler(f *File, h srcHandler) (*InstallFile, error) {
+func (i *fileInstaller) InstallWithHandler(f *File, h srcHandler) (installFile *InstallFile, retErr error) {
 	var srcReader io.ReadCloser
 	var err error
+
 	src := filepath.Join(i.srcRoot, filepath.FromSlash(f.Src))
 	srcReader, err = os.Open(src)
 	if err != nil {
-		return nil, errors.Wrapf(err, `open "%s"`, src)
+		retErr = errors.Wrapf(err, `open "%s"`, src)
+		return
 	}
 	defer srcReader.Close()
 
 	if h != nil {
 		srcReader, err = h(srcReader, f.Src)
 		if err != nil {
-			return nil, errors.Wrapf(err, `handle "%s"`, src)
+			retErr = errors.Wrapf(err, `handle "%s"`, src)
+			return
 		}
 		defer srcReader.Close()
 	}
 
 	dest := filepath.Join(i.destRoot, filepath.FromSlash(f.Dest))
-	if err := MakeParentDir(dest); err != nil {
-		return nil, errors.Wrapf(err, `make dir for "%s"`, dest)
+
+	destFile, retErr := utils.OpenFileToWrite(dest, fs.FileMode(0600))
+	if retErr != nil {
+		return
 	}
 
-	destFile, err := os.OpenFile(dest, os.O_RDWR|os.O_CREATE|os.O_TRUNC, fs.FileMode(0600))
-	if err != nil {
-		return nil, errors.Wrapf(err, `open destination "%s"`, dest)
-	}
-	defer destFile.Close()
+	defer func() {
+		err := destFile.Close()
+		if err != nil {
+			err = errors.Wrapf(err, `close "%s"`, dest)
+		}
+		if retErr == nil {
+			retErr = err
+		}
+	}()
 
 	if _, err := io.Copy(destFile, srcReader); err != nil {
-		return nil, errors.Wrapf(err, `copy from "%s" to "%s"`, src, dest)
+		retErr = errors.Wrapf(err, `copy from "%s" to "%s"`, src, dest)
+		return
 	}
 
 	if _, err := destFile.Seek(0, io.SeekStart); err != nil {
-		return nil, errors.Wrapf(err, `seek dest "%s" to begin`, dest)
+		retErr = errors.Wrapf(err, `seek dest "%s" to begin`, dest)
+		return
 	}
 
 	hash := sha256.New()
 	if _, err := io.Copy(hash, destFile); err != nil {
-		return nil, errors.Wrapf(err, `compute hash for "%s"`, src, dest)
+		retErr = errors.Wrapf(err, `compute hash for "%s"`, dest)
+		return
 	}
 	hashResult := fmt.Sprintf("sha256:%s", hex.EncodeToString(hash.Sum(nil)))
 
 	if f.Mode != 0 {
 		mode := f.Mode & os.ModePerm
 		if err := destFile.Chmod(mode); err != nil {
-			return nil, fmt.Errorf(`chmod "%s" to %v`, dest, mode)
+			retErr = fmt.Errorf(`chmod "%s" to %v`, dest, mode)
+			return
 		}
 	}
 
 	if err := destFile.Chown(f.Uid, f.Gid); err != nil {
-		return nil, fmt.Errorf(`chown "%s" to %d:%d`, dest, f.Uid, f.Gid)
+		retErr = fmt.Errorf(`chown "%s" to %d:%d`, dest, f.Uid, f.Gid)
+		return
 	}
 
-	return &InstallFile{
+	installFile = &InstallFile{
 		Dest:         dest,
 		Type:         f.Type,
 		Uid:          f.Uid,
@@ -100,5 +115,6 @@ func (i *fileInstaller) InstallWithHandler(f *File, h srcHandler) (*InstallFile,
 		Mode:         f.Mode,
 		Hash:         hashResult,
 		DeletePolicy: f.DeletePolicy,
-	}, nil
+	}
+	return
 }

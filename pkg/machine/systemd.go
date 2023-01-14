@@ -1,9 +1,10 @@
-package machineinfo
+package machine
 
 import (
 	"strings"
 
 	"github.com/alauda/kube-supv/pkg/utils"
+	"github.com/pkg/errors"
 )
 
 const (
@@ -27,9 +28,14 @@ func (i *SystemdInfo) Explore() error {
 }
 
 func (i *SystemdInfo) exploreVersion() error {
-	ret, err := utils.Exec("systemctl", "-p", "Version")
+	cmd := "systemctl"
+	if !utils.CommandExist(cmd) {
+		return nil
+	}
+	args := []string{"show", "-p", "Version"}
+	ret, err := utils.Exec(cmd, args...)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, `%s %s`, cmd, strings.Join(args, " "))
 	}
 	fields := strings.Split(ret, "=")
 	i.Version = fields[len(fields)-1]
@@ -37,17 +43,22 @@ func (i *SystemdInfo) exploreVersion() error {
 }
 
 func (i *SystemdInfo) exploreServices() error {
+	cmd := "systemctl"
+	if !utils.CommandExist(cmd) {
+		return nil
+	}
 	const suffix = ".service"
-	ret, err := utils.Exec("systemctl", "list-unit-files", "*.service", "--no-pager")
+	args := []string{"list-unit-files", "*.service", "--no-pager"}
+	ret, err := utils.Exec(cmd, args...)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, `%s %s`, cmd, strings.Join(args, " "))
 	}
 	if i.Services == nil {
 		i.Services = map[string]*ServiceState{}
 	}
 	for _, line := range utils.Lines(ret) {
 		fields := strings.Fields(line)
-		if len(fields) != 2 {
+		if len(fields) < 2 {
 			continue
 		}
 		name := strings.TrimSuffix(fields[0], suffix)
@@ -61,9 +72,10 @@ func (i *SystemdInfo) exploreServices() error {
 		i.Services[name].Enabled = state == enabled
 	}
 
-	ret, err = utils.Exec("systemctl", "list-units", "*.service", "-t", "service", "--no-pager")
+	args2 := []string{"list-units", "*.service", "-t", "service", "--no-pager"}
+	ret, err = utils.Exec(cmd, args2...)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, `%s %s`, cmd, strings.Join(args2, " "))
 	}
 
 	for _, line := range utils.Lines(ret) {

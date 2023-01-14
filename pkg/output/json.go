@@ -2,10 +2,13 @@ package output
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
+)
 
-	"github.com/alauda/kube-supv/pkg/errors"
+var (
+	ErrNeedStdOut = errors.New("need stdout")
 )
 
 func WriteJSON(stdout io.Writer, obj interface{}) error {
@@ -13,7 +16,7 @@ func WriteJSON(stdout io.Writer, obj interface{}) error {
 		stdout = os.Stdout
 	}
 	if stdout == nil {
-		return errors.ErrNeedStdOut
+		return ErrNeedStdOut
 	}
 	encoder := json.NewEncoder(stdout)
 	encoder.SetIndent("", "  ")

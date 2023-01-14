@@ -15,7 +15,6 @@ type Options struct {
 	Repositiory string
 	Tag         string
 	Digest      digest.Digest
-	Destination string
 	Ctx         context.Context
 }
 

@@ -1,4 +1,4 @@
-package machineinfo
+package machine
 
 func ExploreMulti(handlers ...func() error) error {
 	for _, f := range handlers {

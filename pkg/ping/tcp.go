@@ -2,11 +2,26 @@ package ping
 
 import (
 	"fmt"
+	"math/rand"
 	"net"
 	"time"
 
 	"github.com/pkg/errors"
 )
+
+func ConnectTCP(addr string, deadline time.Time) error {
+	dialer := net.Dialer{
+		Timeout:  time.Second * 2,
+		Deadline: deadline,
+	}
+
+	conn, err := dialer.Dial("tcp", addr)
+	if err != nil {
+		return errors.Wrapf(err, `tcp dial %s`, addr)
+	}
+	conn.Close()
+	return nil
+}
 
 func PingTCP(addr string, deadline time.Time) error {
 	dialer := net.Dialer{
@@ -39,5 +54,6 @@ func PingTCP(addr string, deadline time.Time) error {
 }
 
 func makePayload() string {
-	return ""
+	rand.Seed(time.Now().UnixNano())
+	return fmt.Sprintf("%d-%d", time.Now().UnixNano(), rand.Int())
 }

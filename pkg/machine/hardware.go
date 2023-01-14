@@ -1,9 +1,10 @@
-package machineinfo
+package machine
 
 import (
 	"runtime"
 
 	"github.com/alauda/kube-supv/pkg/utils"
+	"github.com/jaypipes/ghw"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
 )
@@ -22,12 +23,15 @@ func (i *CPUInfo) Explore() error {
 	if err := i.exploreArch(); err != nil {
 		return err
 	}
+
 	ctx, cancel := utils.DefaultTimeoutCtx()
 	defer cancel()
+
 	info, err := cpu.InfoWithContext(ctx)
 	if err != nil {
 		return err
 	}
+
 	i.CPUs, err = cpu.Counts(true)
 	if err != nil {
 		return err
@@ -80,10 +84,12 @@ type MemoryInfo struct {
 func (i *MemoryInfo) Explore() error {
 	ctx, cancel := utils.DefaultTimeoutCtx()
 	defer cancel()
+
 	info, err := mem.VirtualMemoryWithContext(ctx)
 	if err != nil {
 		return err
 	}
+
 	i.Total = info.Total
 	i.Available = info.Available
 	i.SwapTotal = info.SwapTotal
@@ -93,13 +99,14 @@ func (i *MemoryInfo) Explore() error {
 	i.HugePagesFree = info.HugePagesFree
 	i.HugePagesRsvd = info.HugePagesRsvd
 	i.HugePagesSurp = info.HugePagesSurp
+
 	return nil
 }
 
 type HardwareInfo struct {
-	CPU    CPUInfo    `json:"CPU"`
-	Memory MemoryInfo `json:"memory"`
-	PCIs   []string   `json:"PCIs"`
+	CPU    CPUInfo          `json:"CPU"`
+	Memory MemoryInfo       `json:"memory"`
+	PCI    []*ghw.PCIDevice `json:"PCI"`
 }
 
 func (i *HardwareInfo) Explore() error {
@@ -110,13 +117,13 @@ func (i *HardwareInfo) Explore() error {
 }
 
 func (i *HardwareInfo) explorePCIs() error {
-	const cmd = "lspci"
-	if utils.CommandExist(cmd) {
-		ret, err := utils.Exec(cmd, "-nn")
-		if err != nil {
-			return err
-		}
-		i.PCIs = utils.Lines(ret)
+	if runtime.GOOS != "linux" {
+		return nil
 	}
+	pci, err := ghw.PCI()
+	if err != nil {
+		return err
+	}
+	i.PCI = pci.Devices
 	return nil
 }

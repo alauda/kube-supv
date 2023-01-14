@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
 
+	"github.com/alauda/kube-supv/pkg/utils"
 	"github.com/alauda/kube-supv/pkg/utils/untar"
 	registryclient "github.com/distribution/distribution/registry/client"
 
@@ -148,21 +148,14 @@ func downloadBlob(opts *Options, repo distribution.Repository, blobID digest.Dig
 	}
 	defer reader.Close()
 
-	dst := opts.Destination
-	dst, err = filepath.Abs(dst)
+	dest, err = filepath.Abs(dest)
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(dst); err != nil {
-		if os.IsNotExist(err) {
-			if err := os.MkdirAll(dst, os.FileMode(0755)); err != nil {
-				return err
-			}
-		} else {
-			return err
-		}
+	if err := utils.MakeDir(dest); err != nil {
+		return err
 	}
-	if err := untar.Untar(reader, dst); err != nil {
+	if err := untar.Untar(reader, dest); err != nil {
 		return err
 	}
 	return nil

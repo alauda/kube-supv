@@ -1,6 +1,8 @@
-package machineinfo
+package machine
 
 import (
+	"encoding/json"
+	"io"
 	"os"
 	"os/user"
 	"regexp"
@@ -8,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/alauda/kube-supv/pkg/utils"
+	"github.com/pkg/errors"
 	"github.com/shirou/gopsutil/v3/host"
 )
 
@@ -38,12 +41,12 @@ type OSInfo struct {
 func (i *OSInfo) Explore() error {
 	ctx, cancel := utils.DefaultTimeoutCtx()
 	defer cancel()
-	if runtime.GOOS == "linux" {
+	if runtime.GOOS != "linux" {
+		i.Name = runtime.GOOS
+	} else {
 		if err := i.exploreNameVersion(); err != nil {
 			return err
 		}
-	} else {
-		i.Name = runtime.GOOS
 	}
 	kernel, err := host.KernelVersionWithContext(ctx)
 	if err != nil {
@@ -105,4 +108,21 @@ func (i *MachineInfo) Explore() error {
 		i.OS.Explore,
 		i.Network.Explore,
 		i.System.Explore)
+}
+
+func (i *MachineInfo) WriteJSON(w io.Writer) error {
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(i); err != nil {
+		return errors.Wrap(err, "write machine info json")
+	}
+	return nil
+}
+
+func CollectMachineInfo() (*MachineInfo, error) {
+	mi := &MachineInfo{}
+	if err := mi.Explore(); err != nil {
+		return nil, err
+	}
+	return mi, nil
 }
