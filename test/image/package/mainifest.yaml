@@ -1,0 +1,20 @@
+name: test
+version: v1.0.0
+files:
+  - type: dir
+    dest: /test/dir0
+  - type: file
+    src: test.txt
+    dest: /test/dir0/test.txt
+  - type: template
+    src: test.yaml
+    dest: /test/dir0/test.yaml
+values:
+  key1: value1
+  key2:
+    key3: value3
+hooks:
+  beforeInstall:
+    script: beforeInstall.sh
+  afterInstall:
+    script: afterInstall.sh

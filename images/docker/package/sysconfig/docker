@@ -1,0 +1,5 @@
+{{- $args := "" }}
+{{- range $key, $var := .Values.extraArgs }}
+  {{- $args = (printf "%s--%s=\"%s\" " $args $key $var )}}
+{{- end }}
+DOCKER_EXTRA_ARGS={{- $args }}

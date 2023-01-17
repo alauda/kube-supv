@@ -1,0 +1,65 @@
+name: docker
+version: v20.10.22
+files:
+  - type: dir
+    dest: /etc/docker
+    uid: 0
+    gid: 0
+    mode: 750
+    deletePolicy: "delete"
+  - type: file
+    src: docker.service
+    dest: /etc/systemd/system/docker.service
+    uid: 0
+    gid: 0
+    mode: 640
+  - type: template
+    src: daemon.json
+    dest: /etc/docker/daemon.json
+    uid: 0
+    gid: 0
+    mode: 640
+  - type: template
+    src: sysconfig/docker
+    dest: /etc/sysconfig/docker
+  - type: dir
+    src: bin
+    dest: /usr/bin
+  - type: file
+    src: beforeUninstall.sh
+    dest: /etc/kubesupv/docker.d/beforeUninstall.sh
+    uid: 0
+    gid: 0
+    mode: 750
+values:
+  extraArgs: {}
+  nvidia:
+    enable: false
+    config:
+      default-runtime: nvidia
+      runtimes:
+        nvidia:
+          path: /usr/bin/nvidia-container-runtime
+  daemon:
+    config:
+      debug: false
+      insecure-registries: []
+      selinux-enabled: false
+      ip-forward: true
+      ipv6: false
+      live-restore: true
+      storage-driver: overlay2
+      log-driver: json-file
+      log-level: debug
+      log-opts:
+        max-size: "100m"
+        max-file: "2"
+hooks:
+  beforeInstall:
+    script: beforeInstall.sh
+  afterInstall:
+    script: afterInstall.sh
+  afterUpgrade:
+    script: afterUpgrade.sh
+  beforeUninstall:
+    script: beforeUninstall.sh

@@ -17,22 +17,29 @@ func init() {
 
 type templateInstaller struct {
 	fileInstaller
-	values   map[string]interface{}
+	m        *Manifest
 	renderer *template.Template
 }
 
-func NewTemplateInstaller(srcRoot, destRoot string, values map[string]interface{}) Installer {
+type templateData struct {
+	Values  map[string]interface{}
+	Name    string
+	Version string
+	Root    string
+}
+
+func NewTemplateInstaller(m *Manifest, destRoot string) Installer {
 	return &templateInstaller{
 		fileInstaller: fileInstaller{
-			srcRoot:  filepath.FromSlash(srcRoot),
+			srcRoot:  filepath.FromSlash(m.srcRoot),
 			destRoot: filepath.FromSlash(destRoot),
 		},
-		values:   values,
+		m:        m,
 		renderer: renderer.NewRenderer(),
 	}
 }
 
-func (i *templateInstaller) Install(f *File) (*InstallFile, error) {
+func (i *templateInstaller) Install(f *File) ([]InstallFile, error) {
 	if f.Type != Template {
 		return nil, fmt.Errorf(`need FileType "%s", but got "%s"`, Template, f.Type)
 	}
@@ -51,7 +58,12 @@ func (i *templateInstaller) render(srcReader io.ReadCloser, filename string) (io
 	}
 
 	var buf bytes.Buffer
-	if err := parsedTempalte.Execute(&buf, i.values); err != nil {
+	if err := parsedTempalte.Execute(&buf, &templateData{
+		Name:    i.m.Name,
+		Version: i.m.Version,
+		Root:    i.destRoot,
+		Values:  i.m.Values,
+	}); err != nil {
 		return nil, errors.Wrapf(err, `rendering template "%s"`, filename)
 	}
 	return &wrapBuffer{buf: &buf}, nil

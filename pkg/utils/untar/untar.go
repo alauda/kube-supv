@@ -9,18 +9,18 @@ package untar
 import (
 	"archive/tar"
 	"compress/gzip"
-	"errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 
+	"github.com/alauda/kube-supv/pkg/log"
 	"github.com/alauda/kube-supv/pkg/utils"
+	"github.com/pkg/errors"
 )
 
 // TODO(bradfitz): this was copied from x/build/cmd/buildlet/buildlet.go
@@ -39,15 +39,13 @@ func untar(r io.Reader, dir string) (err error) {
 	madeDir := map[string]bool{}
 	defer func() {
 		td := time.Since(t0)
-		if err == nil {
-			log.Printf("extracted tarball into %s: %d files, %d dirs (%v)", dir, nFiles, len(madeDir), td)
-		} else {
-			log.Printf("error extracting tarball into %s after %d files, %d dirs, %v: %v", dir, nFiles, len(madeDir), td, err)
+		if err != nil {
+			log.Errorf("untar into %s after %d files, %d dirs, %v, error: %v", dir, nFiles, len(madeDir), td, err)
 		}
 	}()
 	zr, err := gzip.NewReader(r)
 	if err != nil {
-		return fmt.Errorf("requires gzip-compressed body: %v", err)
+		return errors.Wrap(err, `gzip NewReader`)
 	}
 	tr := tar.NewReader(zr)
 	loggedChtimesError := false
@@ -57,8 +55,7 @@ func untar(r io.Reader, dir string) (err error) {
 			break
 		}
 		if err != nil {
-			log.Printf("tar reading error: %v", err)
-			return fmt.Errorf("tar error: %v", err)
+			return errors.Wrapf(err, `reading tar`)
 		}
 		if !validRelPath(f.Name) {
 			return fmt.Errorf("tar contained invalid name error %q", f.Name)
@@ -90,23 +87,28 @@ func untar(r io.Reader, dir string) (err error) {
 				// file first does clear the cache. See #54132.
 				err := os.Remove(abs)
 				if err != nil && !errors.Is(err, fs.ErrNotExist) {
-					return err
+					return errors.Wrapf(err, `darwin remove file "%s"`, abs)
 				}
 			}
 			wf, err := os.OpenFile(abs, os.O_RDWR|os.O_CREATE|os.O_TRUNC, mode.Perm())
 			if err != nil {
-				return err
+				return errors.Wrapf(err, `open file "%s"`, abs)
 			}
 			n, err := io.Copy(wf, tr)
 			if closeErr := wf.Close(); closeErr != nil && err == nil {
 				err = closeErr
 			}
 			if err != nil {
-				return fmt.Errorf("error writing to %s: %v", abs, err)
+				return errors.Wrapf(err, `write file "%s"`, abs)
 			}
 			if n != f.Size {
 				return fmt.Errorf("only wrote %d bytes to %s; expected %d", n, abs, f.Size)
 			}
+
+			if err := utils.ChOwn(abs, f.Uid, f.Gid); err != nil {
+				return err
+			}
+
 			modTime := f.ModTime
 			if modTime.After(t0) {
 				// Clamp modtimes at system time. See
@@ -122,7 +124,7 @@ func untar(r io.Reader, dir string) (err error) {
 					// on it anywhere (the gomote push command relies
 					// on digests only), so this is a little pointless
 					// for now.
-					log.Printf("error changing modtime: %v (further Chtimes errors suppressed)", err)
+					log.Errorf("error changing modtime: %v (further Chtimes errors suppressed)", err)
 					loggedChtimesError = true // once is enough
 				}
 			}

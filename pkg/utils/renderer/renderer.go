@@ -1,6 +1,7 @@
 package renderer
 
 import (
+	"reflect"
 	"text/template"
 )
 
@@ -9,7 +10,13 @@ var (
 )
 
 func AddFunc(name string, funcs interface{}) {
-	registedFuncs[name] = funcs
+	if reflect.TypeOf(funcs).Kind() == reflect.Func {
+		registedFuncs[name] = funcs
+	} else {
+		registedFuncs[name] = func() interface{} {
+			return funcs
+		}
+	}
 }
 
 func NewRenderer() *template.Template {

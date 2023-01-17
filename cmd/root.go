@@ -9,7 +9,7 @@ import (
 var subCmds = []func() *cobra.Command{
 	clusterCmd,
 	machineCmd,
-	criCmd,
+	packageCmd,
 	certCmd,
 }
 

@@ -1,27 +1,40 @@
 package unpack
 
 import (
-	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
 	"github.com/alauda/kube-supv/pkg/utils"
 	"github.com/pkg/errors"
+	"gopkg.in/yaml.v3"
 )
 
 const (
-	recordFileMode os.FileMode = 0600
+	recordFileMode    os.FileMode = 0600
+	DefaultRecordDir              = "/etc/kubesupv"
+	recordFileExtName             = ".yaml"
 )
 
 type InstallRecord struct {
-	Name         string            `yaml:"name"`
-	Version      string            `yaml:"version"`
-	InstallFiles []InstallFile     `yaml:"installFiles"`
-	Phase        RecordPhase       `yaml:"phase"`
-	Message      string            `yaml:"message"`
-	Hooks        map[HookType]Hook `yaml:"hooks"`
-	recordDir    string
+	Name      string                 `yaml:"name"`
+	Version   string                 `yaml:"version"`
+	Image     string                 `yaml:"image"`
+	Files     []InstallFile          `yaml:"files"`
+	Phase     RecordPhase            `yaml:"phase"`
+	Message   string                 `yaml:"message"`
+	Hooks     map[HookType]Hook      `yaml:"hooks"`
+	Values    map[string]interface{} `yaml:"values"`
+	Histories []InstallHistory       `yaml:"histories"`
+	recordDir string
+}
+
+type InstallHistory struct {
+	Version string
+	Phase   RecordPhase `yaml:"phase"`
+	Message string      `yaml:"message"`
+	Time    string      `yaml:"time"`
 }
 
 type InstallFile struct {
@@ -36,7 +49,7 @@ type InstallFile struct {
 
 func (f *InstallFile) Remove() error {
 	if f.DeletePolicy == "" {
-		f.DeletePolicy = DefaultDeletePolicy
+		f.DeletePolicy = DefaultDeletePolicy(f.Type)
 	}
 	if f.DeletePolicy == DeletePolicyKeep {
 		return nil
@@ -60,18 +73,19 @@ func (f *InstallFile) Remove() error {
 type RecordPhase string
 
 const (
-	Success       RecordPhase = "Success"
-	InstallFailed RecordPhase = "InstallFailed"
-	UpgradeFailed RecordPhase = "UpgradeFailed"
-	DeleteFailed  RecordPhase = "DeleteFailed"
+	InstallSuccess RecordPhase = "Success"
+	InstallFailed  RecordPhase = "InstallFailed"
+	UpgradeFailed  RecordPhase = "UpgradeFailed"
+	DeleteFailed   RecordPhase = "DeleteFailed"
 )
 
-func NewInstallRecord(manifest *Manifest, recordDir string) *InstallRecord {
+func NewInstallRecord(manifest *Manifest, recordDir, image string) *InstallRecord {
 	return &InstallRecord{
 		Name:      manifest.Name,
 		Version:   manifest.Version,
+		Image:     image,
 		recordDir: recordDir,
-		InstallFiles: []InstallFile{
+		Files: []InstallFile{
 			{
 				Dest:         recordPath(recordDir, manifest.Name),
 				Type:         NormalFile,
@@ -79,76 +93,121 @@ func NewInstallRecord(manifest *Manifest, recordDir string) *InstallRecord {
 				Gid:          os.Getegid(),
 				Mode:         recordFileMode,
 				Hash:         "",
-				DeletePolicy: DefaultDeletePolicy,
+				DeletePolicy: DeletePolicyDelete,
 			},
 		},
-		Hooks: map[HookType]Hook{},
+		Hooks:  map[HookType]Hook{},
+		Values: manifest.Values,
 	}
 }
 
-func IsInstalled(recordDir, name string) (bool, error) {
-	recordPath := recordPath(recordDir, name)
-	return utils.IsFileExist(recordPath)
+func ListRecords(recordDir string) ([]InstallRecord, error) {
+	recordDir = filepath.FromSlash(recordDir)
+	dirEntries, err := os.ReadDir(recordDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, errors.Wrapf(err, `read directory "%s"`, recordDir)
+	}
+	var r []InstallRecord
+	for _, entry := range dirEntries {
+		if entry.IsDir() {
+			continue
+		}
+		fileName := entry.Name()
+		if filepath.Ext(fileName) == recordFileExtName {
+			name := fileName[:len(fileName)-len(recordFileExtName)]
+			record, exist, err := LoadInstallRecord(recordDir, name)
+			if err != nil || !exist {
+				continue
+			}
+			r = append(r, *record)
+		}
+	}
+	return r, nil
 }
-func LoadInstallRecord(recordDir, name string) (*InstallRecord, error) {
+
+func LoadInstallRecord(recordDir, name string) (*InstallRecord, bool, error) {
 	recordPath := recordPath(recordDir, name)
 	file, err := os.Open(recordPath)
 	if err != nil {
-		return nil, errors.Wrapf(err, `open "%s"`, recordPath)
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, errors.Wrapf(err, `open "%s"`, recordPath)
 	}
 
 	record := InstallRecord{}
-	if err := json.NewDecoder(file).Decode(&record); err != nil {
-		return nil, errors.Wrapf(err, `json decode "%s"`, recordPath)
+	if err := record.Decode(file); err != nil {
+		return nil, true, errors.Wrapf(err, `decode "%s"`, recordPath)
 	}
 	if record.Name != name {
-		return nil, fmt.Errorf(`name of "%s" is "%s", but need "%s"`, recordPath, record.Name, name)
+		return nil, true, fmt.Errorf(`name of "%s" is "%s", but need "%s"`, recordPath, record.Name, name)
 	}
 	record.recordDir = recordDir
-	return &record, nil
+	return &record, true, nil
 }
 
 func recordPath(recordDir, name string) string {
 	recordDir = filepath.FromSlash(recordDir)
-	return filepath.Join(recordDir, fmt.Sprintf("%s.json", name))
+	return filepath.Join(recordDir, fmt.Sprintf("%s%s", name, recordFileExtName))
 }
 
-func (r *InstallRecord) Append(installFile *InstallFile) {
-	if installFile != nil {
-		r.InstallFiles = append(r.InstallFiles, *installFile)
+func (r *InstallRecord) Append(installFiles ...InstallFile) {
+	if len(installFiles) > 0 {
+		r.Files = append(r.Files, installFiles...)
 	}
 }
 
 func (r *InstallRecord) Save() error {
 	recordDir := filepath.FromSlash(r.recordDir)
-	recordPath := filepath.Join(recordDir, fmt.Sprintf("%s.json", r.Name))
+	recordPath := recordPath(recordDir, r.Name)
 
 	if err := utils.MakeParentDir(recordPath); err != nil {
 		return errors.Wrapf(err, `make dir for "%s"`, recordPath)
 	}
 
-	data, err := json.Marshal(r)
+	f, err := utils.OpenFileToWrite(recordPath, recordFileMode)
 	if err != nil {
-		return errors.Wrapf(err, `marshal install record of "%s" to json`, r.Name)
+		return err
+	}
+	defer f.Close()
+
+	if err := r.Encode(f); err != nil {
+		return err
 	}
 
-	if err := os.WriteFile(recordPath, data, recordFileMode); err != nil {
-		return errors.Wrapf(err, `write "%s"`, recordPath)
+	return nil
+}
+
+func (r *InstallRecord) Encode(w io.Writer) error {
+	encoder := yaml.NewEncoder(w)
+	encoder.SetIndent(2)
+
+	if err := encoder.Encode(r); err != nil {
+		return errors.Wrapf(err, `marshal install record of "%s"`, r.Name)
+	}
+	return nil
+}
+
+func (r *InstallRecord) Decode(in io.Reader) error {
+	decoder := yaml.NewDecoder(in)
+
+	if err := decoder.Decode(&r); err != nil {
+		return errors.Wrapf(err, `unmarshal install record`)
 	}
 	return nil
 }
 
 func (r *InstallRecord) Uninstall() error {
-	if err := r.runHook(BeforeDelete); err != nil {
+	if err := r.runHook(BeforeUninstall); err != nil {
 		return err
 	}
-	for i := len(r.InstallFiles) - 1; i >= 0; i-- {
-		if err := r.InstallFiles[i].Remove(); err != nil {
+	for i := len(r.Files) - 1; i >= 0; i-- {
+		if err := r.Files[i].Remove(); err != nil {
 			return err
 		}
-	}
-	if err := r.runHook(AfterDelete); err != nil {
-		return err
 	}
 	return nil
 }

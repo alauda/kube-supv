@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strings"
 
 	"github.com/alauda/kube-supv/pkg/kube"
 	"github.com/pkg/errors"
@@ -24,10 +23,10 @@ func certCmd() *cobra.Command {
 
 func certGenerateCmd() *cobra.Command {
 	var (
-		days              int
 		caDays            int
-		apiserverCertSANs string
-		etcdCertSANs      string
+		days              int
+		apiserverCertSANs []string
+		etcdCertSANs      []string
 		apiServerEndpoint string
 		nodeName          string
 		nodeIPStr         string
@@ -58,8 +57,8 @@ func certGenerateCmd() *cobra.Command {
 					NodeName:          nodeName,
 					NodeIP:            nodeIP,
 					ClusterName:       clusterName,
-					APIServerCertSANs: strings.Split(apiserverCertSANs, ","),
-					ETCDCertSANs:      strings.Split(etcdCertSANs, ","),
+					APIServerCertSANs: apiserverCertSANs,
+					ETCDCertSANs:      etcdCertSANs,
 					Out:               cmd.OutOrStdout(),
 				}
 				return config.GenerateAll()
@@ -73,8 +72,8 @@ func certGenerateCmd() *cobra.Command {
 	cmd.Flags().StringVar(&nodeName, "node-name", "", "node name, defualt use hostname")
 	cmd.Flags().StringVar(&nodeIPStr, "node-ip", "127.0.0.1", "node ip")
 	cmd.Flags().StringVar(&clusterName, "cluster-name", "cluster.local", "apiserver endpoint")
-	cmd.Flags().StringVar(&etcdCertSANs, "etcd-cert-sans", "", "etcd certificate SANs, connected with comma")
-	cmd.Flags().StringVar(&apiserverCertSANs, "apiserver-cert-sans", "", "apiserver certificate SANs, connected with comma")
+	cmd.Flags().StringArrayVar(&etcdCertSANs, "etcd-cert-sans", nil, "etcd certificate SANs")
+	cmd.Flags().StringArrayVar(&apiserverCertSANs, "apiserver-cert-sans", nil, "apiserver certificate SANs")
 
 	return cmd
 }
@@ -82,8 +81,8 @@ func certGenerateCmd() *cobra.Command {
 func certRenewCmd() *cobra.Command {
 	var (
 		days              int
-		apiserverCertSANs string
-		etcdCertSANs      string
+		apiserverCertSANs []string
+		etcdCertSANs      []string
 		apiServerEndpoint string
 		nodeName          string
 		nodeIPStr         string
@@ -108,8 +107,8 @@ func certRenewCmd() *cobra.Command {
 					NodeName:          nodeName,
 					NodeIP:            nodeIP,
 					ClusterName:       clusterName,
-					APIServerCertSANs: strings.Split(apiserverCertSANs, ","),
-					ETCDCertSANs:      strings.Split(etcdCertSANs, ","),
+					APIServerCertSANs: apiserverCertSANs,
+					ETCDCertSANs:      etcdCertSANs,
 					Out:               cmd.OutOrStdout(),
 				}
 				return config.Renew()
@@ -122,8 +121,8 @@ func certRenewCmd() *cobra.Command {
 	cmd.Flags().StringVar(&nodeName, "node-name", "", "node name")
 	cmd.Flags().StringVar(&nodeIPStr, "node-ip", "", "node ip")
 	cmd.Flags().StringVar(&clusterName, "cluster-name", "", "apiserver endpoint")
-	cmd.Flags().StringVar(&etcdCertSANs, "etcd-cert-sans", "", "etcd certificate SANs, connected with comma")
-	cmd.Flags().StringVar(&apiserverCertSANs, "apiserver-cert-sans", "", "apiserver certificate SANs, connected with comma")
+	cmd.Flags().StringArrayVar(&etcdCertSANs, "etcd-cert-sans", nil, "etcd certificate SANs")
+	cmd.Flags().StringArrayVar(&apiserverCertSANs, "apiserver-cert-sans", nil, "apiserver certificate SANs")
 
 	return cmd
 }

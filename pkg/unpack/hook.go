@@ -12,12 +12,11 @@ import (
 type HookType string
 
 const (
-	BeforeInstall HookType = "beforeInstall"
-	AfterInstall  HookType = "afterInstall"
-	BeforeUpgrade HookType = "beforeUpgrade"
-	AfterUpgrade  HookType = "afterUpgrade"
-	BeforeDelete  HookType = "beforeDelete"
-	AfterDelete   HookType = "afterDelete"
+	BeforeInstall   HookType = "beforeInstall"
+	AfterInstall    HookType = "afterInstall"
+	BeforeUpgrade   HookType = "beforeUpgrade"
+	AfterUpgrade    HookType = "afterUpgrade"
+	BeforeUninstall HookType = "beforeUninstall"
 )
 
 type Hook struct {

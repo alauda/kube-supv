@@ -1,0 +1,5 @@
+{{- $config := .Values.daemon.config }}
+{{- if .Values.nvidia.enable }}
+    {{- $config = (merge $config .Values.nvidia.config) }}
+{{- end }}
+{{- $config | toJson }}

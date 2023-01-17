@@ -22,14 +22,14 @@ type fileInstaller struct {
 	destRoot string
 }
 
-func NewFileInstaller(srcRoot, destRoot string, values map[string]interface{}) Installer {
+func NewFileInstaller(m *Manifest, destRoot string) Installer {
 	return &fileInstaller{
-		srcRoot:  filepath.FromSlash(srcRoot),
+		srcRoot:  filepath.FromSlash(m.srcRoot),
 		destRoot: filepath.FromSlash(destRoot),
 	}
 }
 
-func (i *fileInstaller) Install(f *File) (*InstallFile, error) {
+func (i *fileInstaller) Install(f *File) ([]InstallFile, error) {
 	if f.Type != NormalFile {
 		return nil, fmt.Errorf(`need FileType "%s", but got "%s"`, NormalFile, f.Type)
 	}
@@ -39,7 +39,7 @@ func (i *fileInstaller) Install(f *File) (*InstallFile, error) {
 
 type srcHandler func(srcReader io.ReadCloser, filename string) (io.ReadCloser, error)
 
-func (i *fileInstaller) InstallWithHandler(f *File, h srcHandler) (installFile *InstallFile, retErr error) {
+func (i *fileInstaller) InstallWithHandler(f *File, h srcHandler) (installFiles []InstallFile, retErr error) {
 	var srcReader io.ReadCloser
 	var err error
 
@@ -94,27 +94,25 @@ func (i *fileInstaller) InstallWithHandler(f *File, h srcHandler) (installFile *
 	}
 	hashResult := fmt.Sprintf("sha256:%s", hex.EncodeToString(hash.Sum(nil)))
 
-	if f.Mode != 0 {
-		mode := f.Mode & os.ModePerm
-		if err := destFile.Chmod(mode); err != nil {
-			retErr = fmt.Errorf(`chmod "%s" to %v`, dest, mode)
-			return
-		}
+	uid := os.Getuid()
+	gid := os.Getgid()
+	if f.Uid != nil {
+		uid = *f.Uid
+	}
+	if f.Gid != nil {
+		gid = *f.Gid
 	}
 
-	if err := destFile.Chown(f.Uid, f.Gid); err != nil {
-		retErr = fmt.Errorf(`chown "%s" to %d:%d`, dest, f.Uid, f.Gid)
-		return
-	}
+	retErr = utils.ChOwnMod(dest, uid, gid, f.Mode)
 
-	installFile = &InstallFile{
+	installFiles = append(installFiles, InstallFile{
 		Dest:         dest,
 		Type:         f.Type,
-		Uid:          f.Uid,
-		Gid:          f.Gid,
+		Uid:          uid,
+		Gid:          gid,
 		Mode:         f.Mode,
 		Hash:         hashResult,
 		DeletePolicy: f.DeletePolicy,
-	}
+	})
 	return
 }

@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/alauda/kube-supv/pkg/errarr"
+	"github.com/imdario/mergo"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
 )
@@ -25,8 +27,8 @@ type File struct {
 	Type         FileType     `yaml:"type"`
 	Src          string       `yaml:"src"`
 	Dest         string       `yaml:"dest"`
-	Uid          int          `yaml:"uid"`
-	Gid          int          `yaml:"gid"`
+	Uid          *int         `yaml:"uid"`
+	Gid          *int         `yaml:"gid"`
 	Mode         os.FileMode  `yaml:"mode"`
 	DeletePolicy DeletePolicy `ymal:"deletePolicy"`
 }
@@ -42,10 +44,17 @@ const (
 type DeletePolicy string
 
 const (
-	DeletePolicyKeep    DeletePolicy = "keep"
-	DeletePolicyDelete  DeletePolicy = "delete"
-	DefaultDeletePolicy DeletePolicy = DeletePolicyDelete
+	DeletePolicyKeep   DeletePolicy = "keep"
+	DeletePolicyDelete DeletePolicy = "delete"
 )
+
+func DefaultDeletePolicy(typ FileType) DeletePolicy {
+	switch typ {
+	case Directory:
+		return DeletePolicyKeep
+	}
+	return DeletePolicyDelete
+}
 
 func LoadManifest(srcRoot string) (*Manifest, error) {
 	srcRoot = filepath.FromSlash(srcRoot)
@@ -67,7 +76,7 @@ func LoadManifest(srcRoot string) (*Manifest, error) {
 
 	for i, n := 0, len(manifest.Files); i < n; i++ {
 		if manifest.Files[i].DeletePolicy == "" {
-			manifest.Files[i].DeletePolicy = DefaultDeletePolicy
+			manifest.Files[i].DeletePolicy = DefaultDeletePolicy(manifest.Files[i].Type)
 		}
 		if manifest.Files[i].Dest == "" {
 			return nil, fmt.Errorf(`the dest of "%s" in manifest "%s" is empty`, manifest.Files[i].Src, manifestPath)
@@ -80,7 +89,7 @@ func LoadManifest(srcRoot string) (*Manifest, error) {
 	}
 
 	if len(manifest.Hooks) > 0 {
-		for _, hookType := range []HookType{BeforeDelete, AfterDelete} {
+		for _, hookType := range []HookType{BeforeUninstall} {
 			hook, exist := manifest.Hooks[hookType]
 			if !exist {
 				continue
@@ -97,21 +106,43 @@ func LoadManifest(srcRoot string) (*Manifest, error) {
 	return &manifest, nil
 }
 
-func (m *Manifest) Install(destRoot, recordDir string, values map[string]interface{}) (err error) {
+func (m *Manifest) Install(destRoot, recordDir, image string, values map[string]interface{}, oldRecord *InstallRecord) (err error) {
 	if err := m.runHook(BeforeInstall); err != nil {
 		return err
 	}
-	installers := NewInstallers(m.srcRoot, destRoot, values)
+
+	if values != nil {
+		if err := mergo.Merge(&m.Values, values, mergo.WithOverride); err != nil {
+			return errors.Wrap(err, `merge values`)
+		}
+	}
+
+	installers := NewInstallers(m, destRoot)
 	if err := m.validateFileType(installers); err != nil {
 		return err
 	}
 
-	record, err := m.installFiles(installers, destRoot, recordDir, values)
+	record, err := m.installFiles(installers, destRoot, recordDir, image)
 	defer func() {
 		if err != nil {
 			record.Phase = InstallFailed
 			record.Message = err.Error()
+		} else {
+			record.Phase = InstallSuccess
 		}
+
+		var histories []InstallHistory
+		if oldRecord != nil {
+			histories = oldRecord.Histories
+		}
+
+		record.Histories = append(histories, InstallHistory{
+			Version: m.Version,
+			Phase:   record.Phase,
+			Message: record.Message,
+			Time:    time.Now().Format(time.RFC3339),
+		})
+
 		if err2 := record.Save(); err2 != nil {
 			err = errarr.NewErrors().Append(err, err2)
 		}
@@ -125,21 +156,39 @@ func (m *Manifest) Install(destRoot, recordDir string, values map[string]interfa
 	return
 }
 
-func (m *Manifest) Upgrade(destRoot, recordDir string, values map[string]interface{}, oldInstallRecord *InstallRecord) (err error) {
+func (m *Manifest) Upgrade(destRoot, recordDir, image string, values map[string]interface{}, oldRecord *InstallRecord) (err error) {
+	if oldRecord == nil {
+		return fmt.Errorf(`need install record`)
+	}
 	if err := m.runHook(BeforeUpgrade); err != nil {
 		return err
 	}
-	installers := NewInstallers(m.srcRoot, destRoot, values)
+
+	if values != nil {
+		if err := mergo.Merge(&m.Values, values, mergo.WithOverride); err != nil {
+			return errors.Wrap(err, `merge values`)
+		}
+	}
+
+	installers := NewInstallers(m, destRoot)
 	if err := m.validateFileType(installers); err != nil {
 		return err
 	}
 
-	record, err := m.installFiles(installers, destRoot, recordDir, values)
+	record, err := m.installFiles(installers, destRoot, recordDir, image)
 	defer func() {
 		if err != nil {
 			record.Phase = UpgradeFailed
 			record.Message = err.Error()
+		} else {
+			record.Phase = InstallSuccess
 		}
+		record.Histories = append(oldRecord.Histories, InstallHistory{
+			Version: m.Version,
+			Phase:   record.Phase,
+			Message: record.Message,
+			Time:    time.Now().Format(time.RFC3339),
+		})
 		if err2 := record.Save(); err2 != nil {
 			err = errarr.NewErrors().Append(err, err2)
 		}
@@ -147,9 +196,9 @@ func (m *Manifest) Upgrade(destRoot, recordDir string, values map[string]interfa
 	if err != nil {
 		return
 	}
-	for i := len(oldInstallRecord.InstallFiles) - 1; i >= 0; i-- {
-		oldFile := oldInstallRecord.InstallFiles[i]
-		removed := FindInstallFileByDest(record.InstallFiles, oldFile.Dest) == nil
+	for i := len(oldRecord.Files) - 1; i >= 0; i-- {
+		oldFile := oldRecord.Files[i]
+		removed := FindInstallFileByDest(record.Files, oldFile.Dest) == nil
 		if removed && oldFile.DeletePolicy != DeletePolicyKeep {
 			if err = oldFile.Remove(); err != nil {
 				return err
@@ -173,17 +222,19 @@ func (m *Manifest) validateFileType(installers map[FileType]Installer) error {
 	return nil
 }
 
-func (m *Manifest) installFiles(installers map[FileType]Installer, destRoot, recordDir string, values map[string]interface{}) (*InstallRecord, error) {
-	record := NewInstallRecord(m, recordDir)
+func (m *Manifest) installFiles(installers map[FileType]Installer, destRoot, recordDir, image string) (*InstallRecord, error) {
+	record := NewInstallRecord(m, recordDir, image)
+
 	for _, f := range m.Files {
-		installFile, err := installers[f.Type].Install(&f)
+		installFiles, err := installers[f.Type].Install(&f)
 		if err != nil {
-			return nil, err
+			return record, err
 		}
-		record.Append(installFile)
+		record.Append(installFiles...)
 	}
+
 	if len(m.Hooks) > 0 {
-		for _, hookType := range []HookType{BeforeDelete, AfterDelete} {
+		for _, hookType := range []HookType{BeforeUninstall} {
 			hook, exist := m.Hooks[hookType]
 			if !exist {
 				continue

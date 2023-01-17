@@ -1,0 +1,7 @@
+name: {{ .Name }}
+version: {{ .Version }}
+root: {{ .Root }}
+key1: {{ .Values.key1 }}
+key3: {{ .Values.key3 }}
+files: |
+  {{ shell "ls" .Root }}

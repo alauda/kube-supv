@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/alauda/kube-supv/pkg/utils"
+	"github.com/pkg/errors"
 )
 
 func init() {
@@ -13,40 +14,102 @@ func init() {
 }
 
 type dirInstaller struct {
-	destRoot string
+	fileInstaller
 }
 
-func NewDirInstaller(srcRoot, destRoot string, values map[string]interface{}) Installer {
+func NewDirInstaller(m *Manifest, destRoot string) Installer {
 	return &dirInstaller{
-		destRoot: filepath.FromSlash(destRoot),
+		fileInstaller: fileInstaller{
+			srcRoot:  filepath.FromSlash(m.srcRoot),
+			destRoot: filepath.FromSlash(destRoot),
+		},
 	}
 }
 
-func (i *dirInstaller) Install(f *File) (*InstallFile, error) {
+func (i *dirInstaller) Install(f *File) ([]InstallFile, error) {
+	var r []InstallFile
+
 	if f.Type != Directory {
 		return nil, fmt.Errorf(`need FileType "%s", but got "%s"`, Directory, f.Type)
 	}
 
-	dest := filepath.Join(i.destRoot, filepath.FromSlash(f.Dest))
-	if err := utils.MakeDir(dest); err != nil {
+	destDir := filepath.Join(i.destRoot, filepath.FromSlash(f.Dest))
+	destDirExist, err := utils.IsDirExist(destDir)
+	if err != nil {
 		return nil, err
 	}
-	if f.Mode != 0 {
-		mode := f.Mode & os.ModePerm
-		if err := os.Chmod(dest, mode); err != nil {
-			return nil, fmt.Errorf(`chmod "%s" to %v`, dest, mode)
+
+	uid := os.Getuid()
+	gid := os.Getgid()
+	if f.Uid != nil {
+		uid = *f.Uid
+	}
+	if f.Gid != nil {
+		gid = *f.Gid
+	}
+
+	if !destDirExist {
+		if err := utils.MakeDir(destDir); err != nil {
+			return nil, err
 		}
 	}
 
-	if err := os.Chown(dest, f.Uid, f.Gid); err != nil {
-		return nil, fmt.Errorf(`chown "%s" to %d:%d`, dest, f.Uid, f.Gid)
-	}
-	return &InstallFile{
-		Dest:         dest,
+	r = append(r, InstallFile{
+		Dest:         destDir,
 		Type:         f.Type,
-		Uid:          f.Uid,
-		Gid:          f.Gid,
+		Uid:          uid,
+		Gid:          gid,
 		Mode:         f.Mode,
 		DeletePolicy: f.DeletePolicy,
-	}, nil
+	})
+
+	if f.Src != "" {
+		srcDir := filepath.Join(i.srcRoot, filepath.FromSlash(f.Src))
+		r2, err := i.copyFiles(srcDir, destDir)
+		r = append(r, r2...)
+		if err != nil {
+			return r, err
+		}
+	}
+
+	if err := utils.ChOwnMod(destDir, uid, gid, f.Mode); err != nil {
+		return r, err
+	}
+	return r, nil
+}
+
+func (i *dirInstaller) copyFiles(srcPath, destPath string) ([]InstallFile, error) {
+	var r []InstallFile
+
+	entries, err := os.ReadDir(srcPath)
+	if err != nil {
+		return r, errors.Wrapf(err, `read dir "%s"`, srcPath)
+	}
+	for _, entry := range entries {
+		srcFile := filepath.Join(srcPath, entry.Name())
+		destFile := filepath.Join(destPath, entry.Name())
+		if entry.IsDir() {
+			r2, err := i.copyFiles(srcFile, destFile)
+			r = append(r, r2...)
+			if err != nil {
+				return r, err
+			}
+		} else {
+			uid, gid, mode, hash, err := utils.CopyFile(destFile, srcFile)
+			if err != nil {
+				return r, err
+			}
+
+			r = append(r, InstallFile{
+				Dest:         destFile,
+				Type:         NormalFile,
+				Uid:          uid,
+				Gid:          gid,
+				Mode:         mode,
+				Hash:         hash,
+				DeletePolicy: DeletePolicyDelete,
+			})
+		}
+	}
+	return r, nil
 }

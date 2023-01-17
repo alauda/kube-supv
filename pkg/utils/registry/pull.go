@@ -21,7 +21,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-func PullImageLayerToLocal(imageRef, dest, username, password string) error {
+func PullImageLayerToLocal(imageRef, destDir, username, password string) error {
 	opts := &Options{
 		Username: username,
 		Password: password,
@@ -54,7 +54,8 @@ func PullImageLayerToLocal(imageRef, dest, username, password string) error {
 		return err
 	}
 
-	currentPlatform := fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
+	currentPlatform := fmt.Sprintf("linux/%s", runtime.GOARCH)
+
 	var platform string
 	var blobID digest.Digest
 	switch realMan := man.(type) {
@@ -84,7 +85,7 @@ func PullImageLayerToLocal(imageRef, dest, username, password string) error {
 			platform, currentPlatform)
 	}
 
-	if err := downloadBlob(opts, repo, blobID, dest); err != nil {
+	if err := downloadBlob(opts, repo, blobID, destDir); err != nil {
 		return err
 	}
 
@@ -141,21 +142,22 @@ func getImage(opts *Options, repo distribution.Repository, dgst digest.Digest) (
 	return &image, nil
 }
 
-func downloadBlob(opts *Options, repo distribution.Repository, blobID digest.Digest, dest string) error {
-	reader, err := repo.Blobs(opts.Ctx).Open(opts.Ctx, opts.Digest)
+func downloadBlob(opts *Options, repo distribution.Repository, blobID digest.Digest, destDir string) error {
+	reader, err := repo.Blobs(opts.Ctx).Open(opts.Ctx, blobID)
 	if err != nil {
 		return err
 	}
 	defer reader.Close()
 
-	dest, err = filepath.Abs(dest)
+	destDir = filepath.FromSlash(destDir)
+	destDir, err = filepath.Abs(destDir)
 	if err != nil {
 		return err
 	}
-	if err := utils.MakeDir(dest); err != nil {
+	if err := utils.MakeDir(destDir); err != nil {
 		return err
 	}
-	if err := untar.Untar(reader, dest); err != nil {
+	if err := untar.Untar(reader, destDir); err != nil {
 		return err
 	}
 	return nil

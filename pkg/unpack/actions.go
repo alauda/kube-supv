@@ -1,49 +1,41 @@
 package unpack
 
-func Install(srcRoot, destRoot, recordDir string, values map[string]interface{}) error {
+import (
+	"fmt"
+
+	"github.com/pkg/errors"
+)
+
+func InstallOrUpgrade(srcRoot, destRoot, recordDir, image string, values map[string]interface{}) error {
 	manifest, err := LoadManifest(srcRoot)
 	if err != nil {
 		return err
 	}
-	return manifest.Install(destRoot, recordDir, values)
+
+	oldRecord, _, _ := LoadInstallRecord(recordDir, manifest.Name)
+
+	upgrade := false
+	if oldRecord != nil {
+		upgrade = oldRecord.Version != manifest.Version
+	}
+
+	if upgrade {
+		return manifest.Upgrade(destRoot, recordDir, image, values, oldRecord)
+	}
+
+	return manifest.Install(destRoot, recordDir, image, values, oldRecord)
 }
 
-func Upgrade(srcRoot, destRoot, recordDir string, values map[string]interface{}) error {
-	manifest, err := LoadManifest(srcRoot)
+func Uninstall(recordDir, name string) error {
+	installRecord, exist, err := LoadInstallRecord(recordDir, name)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, `load install record %s`, name)
 	}
-	oldInstallRecord, err := LoadInstallRecord(recordDir, manifest.Name)
-	if err != nil {
-		return err
+	if !exist {
+		return fmt.Errorf(`package "%s" does not exist`, name)
 	}
-	return manifest.Upgrade(destRoot, recordDir, values, oldInstallRecord)
-}
-
-func InstallOrUpgrade(srcRoot, destRoot, recordDir string, values map[string]interface{}) error {
-	manifest, err := LoadManifest(srcRoot)
-	if err != nil {
-		return err
+	if err := installRecord.Uninstall(); err != nil {
+		return errors.Wrapf(err, `uninstall %s`, name)
 	}
-	installed, err := IsInstalled(recordDir, manifest.Name)
-	if err != nil {
-		return err
-	}
-	if installed {
-		oldInstallRecord, err := LoadInstallRecord(recordDir, manifest.Name)
-		if err != nil {
-			return err
-		}
-		return manifest.Upgrade(destRoot, recordDir, values, oldInstallRecord)
-	}
-
-	return manifest.Install(destRoot, recordDir, values)
-}
-
-func Delete(recordDir, name string) error {
-	installRecord, err := LoadInstallRecord(recordDir, name)
-	if err != nil {
-		return err
-	}
-	return installRecord.Uninstall()
+	return nil
 }
