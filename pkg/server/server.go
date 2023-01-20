@@ -5,6 +5,7 @@ import (
 
 	packagev1alpha1 "github.com/alauda/kube-supv/api/package/v1alpha1"
 	"github.com/alauda/kube-supv/pkg/log"
+	"github.com/alauda/kube-supv/pkg/scheme"
 	"github.com/alauda/kube-supv/pkg/server/controllers"
 	"github.com/alauda/kube-supv/pkg/utils/kubeclient"
 	"github.com/go-logr/zapr"
@@ -21,7 +22,6 @@ const (
 )
 
 var (
-	scheme        = runtime.NewScheme()
 	renewDeadline = time.Second * 40
 	leaseDuration = time.Second * 60
 	retryPeriod   = time.Second * 12
@@ -32,7 +32,7 @@ func init() {
 		corev1.AddToScheme,
 		packagev1alpha1.AddToScheme,
 	} {
-		if err := addScheme(scheme); err != nil {
+		if err := addScheme(scheme.Scheme); err != nil {
 			panic(err)
 		}
 	}
@@ -42,7 +42,7 @@ func init() {
 func Start() error {
 	controllerruntime.SetLogger(zapr.NewLogger(log.Logger()))
 	manager, err := controllerruntime.NewManager(controllerruntime.GetConfigOrDie(), controllerruntime.Options{
-		Scheme:                     scheme,
+		Scheme:                     scheme.Scheme,
 		LeaderElection:             true,
 		LeaderElectionID:           leaderElectionID,
 		LeaderElectionResourceLock: resourcelock.LeasesResourceLock,

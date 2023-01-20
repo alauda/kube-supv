@@ -7,8 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -155,7 +156,7 @@ func (c *Client) Delete(obj client.Object, opts ...client.DeleteOption) error {
 	defer cancel()
 
 	err := c.client.Delete(ctx, obj, opts...)
-	if errors.IsNotFound(err) {
+	if apierrors.IsNotFound(err) {
 		err = nil
 	}
 	return err
@@ -223,7 +224,7 @@ func (c *Client) RemoveLabel(obj client.Object, name string) error {
 		return err
 	}
 	err = c.Patch(obj, client.RawPatch(types.JSONPatchType, []byte(data)))
-	if errors.IsInvalid(err) {
+	if apierrors.IsInvalid(err) {
 		err = nil
 	}
 	return err
@@ -261,7 +262,7 @@ func (c *Client) RemoveAnnotation(obj client.Object, name string) error {
 		return err
 	}
 	err = c.Patch(obj, client.RawPatch(types.JSONPatchType, []byte(data)))
-	if errors.IsInvalid(err) {
+	if apierrors.IsInvalid(err) {
 		err = nil
 	}
 	return err
@@ -277,7 +278,10 @@ func (c *Client) EnsureFinalizer(obj client.Object, finalizer string) error {
 	}
 	finalizers = append(finalizers, finalizer)
 	obj.SetFinalizers(finalizers)
-	return c.Update(obj)
+	if err := c.Update(obj); err != nil {
+		return errors.Wrapf(err, `add finalizer "%s" for "%s"`, finalizer, obj.GetName())
+	}
+	return nil
 }
 
 func (c *Client) FinishFinalizer(obj client.Object, finalizer string) error {
@@ -295,7 +299,50 @@ func (c *Client) FinishFinalizer(obj client.Object, finalizer string) error {
 	})
 	if changed {
 		obj.SetFinalizers(finalizers)
-		return c.Update(obj)
+		if err := c.Update(obj); err != nil {
+			return errors.Wrapf(err, `remove finalizer "%s" for "%s"`, finalizer, obj.GetName())
+		}
+	}
+	return nil
+}
+
+func (c *Client) AddOwnerReference(obj, owner client.Object) error {
+	changed := false
+	found := false
+
+	ownerName := owner.GetName()
+	ownerUID := owner.GetUID()
+	kind := owner.GetObjectKind().GroupVersionKind().Kind
+	apieVersion := owner.GetObjectKind().GroupVersionKind().GroupVersion().String()
+
+	ownerReferences := obj.GetOwnerReferences()
+
+	for i := range ownerReferences {
+		ref := &ownerReferences[i]
+		if ref.APIVersion == apieVersion && ref.Kind == kind && ref.Name == ownerName {
+			found = true
+			if ref.UID != ownerUID {
+				ref.UID = ownerUID
+				changed = true
+			}
+		}
+	}
+	if !found {
+		ownerReferences = append(ownerReferences, metav1.OwnerReference{
+			APIVersion: apieVersion,
+			Kind:       kind,
+			Name:       ownerName,
+			UID:        ownerUID,
+		})
+		changed = true
+	}
+	if changed {
+		obj.SetOwnerReferences(ownerReferences)
+		if err := c.Update(obj); err != nil {
+			return errors.Wrapf(err, `add owner references fort "%s: %s/%s" to "%s: %s/%s"`,
+				obj.GetObjectKind().GroupVersionKind().String(), obj.GetNamespace(), obj.GetName(),
+				owner.GetObjectKind().GroupVersionKind().String(), owner.GetNamespace(), owner.GetName())
+		}
 	}
 	return nil
 }

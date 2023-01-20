@@ -48,6 +48,15 @@ type PackageInstall struct {
 	Status InstallStatus `json:"status"`
 }
 
+type NodeInstallPhase string
+
+const (
+	NodeInstallUpdating NodeInstallPhase = "Updating"
+	NodeInstallUpdated  NodeInstallPhase = "Updated"
+	NodeInstallFailed   NodeInstallPhase = "Failed"
+	NodeInstallUnknown  NodeInstallPhase = "Unknown"
+)
+
 type NodeInstallStatus struct {
 	// installed packages on this node
 	InstalledPackages map[string]PackageInstall `json:"installedPackages"`
@@ -58,13 +67,15 @@ type NodeInstallStatus struct {
 	// next check time
 	NextCheckTime metav1.Time `json:"nextCheckTime"`
 
-	// message
 	Message string `json:"message"`
+
+	Phase NodeInstallPhase `json:"phase"`
 }
 
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster,shortName="nist",singular="nodeinstall"
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="LatestCheck",type=string,JSONPath=`.status.latestCheckTime`
 // +kubebuilder:printcolumn:name="NextCheck",type=string,JSONPath=`.status.nextCheckTime`
 // +kubebuilder:printcolumn:name="Message",type=string,JSONPath=`.status.message`
