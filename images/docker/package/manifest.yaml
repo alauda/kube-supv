@@ -25,9 +25,15 @@ files:
   - type: dir
     src: bin
     dest: /usr/bin
+  - type: dir
+    dest: /var/lib/kubesupv/docker.d
+    uid: 0
+    gid: 0
+    mode: 750
+    deletePolicy: "delete"
   - type: file
     src: beforeUninstall.sh
-    dest: /etc/kubesupv/docker.d/beforeUninstall.sh
+    dest: /val/lib/kubesupv/docker.d/beforeUninstall.sh
     uid: 0
     gid: 0
     mode: 750

@@ -11,6 +11,7 @@ var subCmds = []func() *cobra.Command{
 	machineCmd,
 	packageCmd,
 	certCmd,
+	serverCmd,
 }
 
 func NewRootCmd() *cobra.Command {

@@ -13,21 +13,25 @@ import (
 
 const (
 	recordFileMode    os.FileMode = 0600
-	DefaultRecordDir              = "/etc/kubesupv"
+	DefaultRecordDir              = "/var/lib/kubesupv"
 	recordFileExtName             = ".yaml"
 )
 
 type InstallRecord struct {
-	Name      string                 `yaml:"name"`
-	Version   string                 `yaml:"version"`
-	Image     string                 `yaml:"image"`
-	Files     []InstallFile          `yaml:"files"`
-	Phase     RecordPhase            `yaml:"phase"`
-	Message   string                 `yaml:"message"`
-	Hooks     map[HookType]Hook      `yaml:"hooks"`
-	Values    map[string]interface{} `yaml:"values"`
-	Histories []InstallHistory       `yaml:"histories"`
-	recordDir string
+	Name          string                 `yaml:"name"`
+	Version       string                 `yaml:"version"`
+	Image         string                 `yaml:"image"`
+	Files         []InstallFile          `yaml:"files"`
+	Phase         RecordPhase            `yaml:"phase"`
+	Message       string                 `yaml:"message"`
+	Hooks         map[HookType]Hook      `yaml:"hooks"`
+	ImageValues   map[string]interface{} `yaml:"imageValues"`
+	PackageValues map[string]interface{} `yaml:"packageValues"`
+	NodeValues    map[string]interface{} `yaml:"nodeValues"`
+	Values        map[string]interface{} `yaml:"values"`
+	InstallRoot   string                 `yaml:"installRoot"`
+	Histories     []InstallHistory       `yaml:"histories"`
+	recordDir     string
 }
 
 type InstallHistory struct {
@@ -79,7 +83,7 @@ const (
 	DeleteFailed   RecordPhase = "DeleteFailed"
 )
 
-func NewInstallRecord(manifest *Manifest, recordDir, image string) *InstallRecord {
+func NewInstallRecord(manifest *Manifest, destRoot, recordDir, image string) *InstallRecord {
 	return &InstallRecord{
 		Name:      manifest.Name,
 		Version:   manifest.Version,
@@ -96,8 +100,9 @@ func NewInstallRecord(manifest *Manifest, recordDir, image string) *InstallRecor
 				DeletePolicy: DeletePolicyDelete,
 			},
 		},
-		Hooks:  map[HookType]Hook{},
-		Values: manifest.Values,
+		Hooks:       map[HookType]Hook{},
+		InstallRoot: destRoot,
+		Values:      manifest.Values,
 	}
 }
 
@@ -215,7 +220,7 @@ func (r *InstallRecord) Uninstall() error {
 func (r *InstallRecord) runHook(hookType HookType) error {
 	if r.Hooks != nil {
 		if hook, exist := r.Hooks[hookType]; exist {
-			return hook.Run("")
+			return hook.Run(r.InstallRoot, "")
 		}
 	}
 	return nil

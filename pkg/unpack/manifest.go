@@ -107,7 +107,7 @@ func LoadManifest(srcRoot string) (*Manifest, error) {
 }
 
 func (m *Manifest) Install(destRoot, recordDir, image string, values map[string]interface{}, oldRecord *InstallRecord) (err error) {
-	if err := m.runHook(BeforeInstall); err != nil {
+	if err := m.runHook(BeforeInstall, destRoot); err != nil {
 		return err
 	}
 
@@ -150,7 +150,7 @@ func (m *Manifest) Install(destRoot, recordDir, image string, values map[string]
 	if err != nil {
 		return
 	}
-	if err = m.runHook(AfterInstall); err != nil {
+	if err = m.runHook(AfterInstall, destRoot); err != nil {
 		return
 	}
 	return
@@ -160,7 +160,7 @@ func (m *Manifest) Upgrade(destRoot, recordDir, image string, values map[string]
 	if oldRecord == nil {
 		return fmt.Errorf(`need install record`)
 	}
-	if err := m.runHook(BeforeUpgrade); err != nil {
+	if err := m.runHook(BeforeUpgrade, destRoot); err != nil {
 		return err
 	}
 
@@ -206,7 +206,7 @@ func (m *Manifest) Upgrade(destRoot, recordDir, image string, values map[string]
 		}
 	}
 
-	if err = m.runHook(AfterUpgrade); err != nil {
+	if err = m.runHook(AfterUpgrade, destRoot); err != nil {
 		return
 	}
 	return
@@ -223,7 +223,7 @@ func (m *Manifest) validateFileType(installers map[FileType]Installer) error {
 }
 
 func (m *Manifest) installFiles(installers map[FileType]Installer, destRoot, recordDir, image string) (*InstallRecord, error) {
-	record := NewInstallRecord(m, recordDir, image)
+	record := NewInstallRecord(m, destRoot, recordDir, image)
 
 	for _, f := range m.Files {
 		installFiles, err := installers[f.Type].Install(&f)
@@ -252,10 +252,10 @@ func (m *Manifest) installFiles(installers map[FileType]Installer, destRoot, rec
 	return record, nil
 }
 
-func (m *Manifest) runHook(hookType HookType) error {
+func (m *Manifest) runHook(hookType HookType, destRoot string) error {
 	if m.Hooks != nil {
 		if hook, exist := m.Hooks[hookType]; exist {
-			return hook.Run(m.srcRoot)
+			return hook.Run(destRoot, m.srcRoot)
 		}
 	}
 	return nil

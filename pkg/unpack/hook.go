@@ -23,9 +23,9 @@ type Hook struct {
 	Script string `yaml:"script"`
 }
 
-func (h *Hook) Run(root string) error {
-	root = filepath.FromSlash(root)
-	script := filepath.Join(root, h.Script)
+func (h *Hook) Run(installRoot, sourceRoot string) error {
+	sourceRoot = filepath.FromSlash(sourceRoot)
+	script := filepath.Join(sourceRoot, h.Script)
 
 	info, err := os.Stat(script)
 	if err != nil {
@@ -42,6 +42,9 @@ func (h *Hook) Run(root string) error {
 		}
 	}
 	cmd := exec.Command(script)
+	cmd.Env = append(cmd.Env,
+		fmt.Sprintf(`INSTALL_ROOT="%s"`, installRoot),
+		fmt.Sprintf(`SOURCE_ROOT="%s"`, sourceRoot))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return errors.Wrapf(err, `run script "%s", output "%s"`, script, string(output))

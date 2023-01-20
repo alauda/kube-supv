@@ -12,6 +12,7 @@ import (
 	"github.com/alauda/kube-supv/pkg/utils/registry"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
 func packageCmd() *cobra.Command {
@@ -19,7 +20,7 @@ func packageCmd() *cobra.Command {
 		Use:   "package",
 		Short: "Install package",
 	}
-	cmd.AddCommand(packageInstallCmd(), packageListCmd(), packageDescribeCmd(), packageRevmoeCmd())
+	cmd.AddCommand(packageInstallCmd(), packageListCmd(), packageDescribeCmd(), packageRevmoeCmd(), uploadRecordCmd())
 
 	return cmd
 }
@@ -189,5 +190,30 @@ func packageRevmoeCmd() *cobra.Command {
 			})
 		},
 	}
+	return cmd
+}
+
+func uploadRecordCmd() *cobra.Command {
+	var (
+		kubeconfig string
+		node       string
+	)
+	cmd := &cobra.Command{
+		Use:   "upload",
+		Short: "upload install record",
+		Run: func(cmd *cobra.Command, args []string) {
+			PrintError(func() error {
+				if node == "" {
+					return fmt.Errorf(`need node name`)
+				}
+				if err := unpack.UploadInstallRecord(node); err != nil {
+					return err
+				}
+				return nil
+			})
+		},
+	}
+	cmd.Flags().StringVar(&node, "node", "", "node name")
+	cmd.Flags().StringVar(&kubeconfig, config.KubeconfigFlagName, "", "Paths to a kubeconfig. Only required if out-of-cluster.")
 	return cmd
 }

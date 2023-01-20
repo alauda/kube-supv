@@ -5,7 +5,7 @@ ARCH ?= $(shell $(GO) env GOARCH)
 
 VERSION ?= $(shell git describe --dirty --always --tags | sed 's/-/./g')
 GO_LDFLAGS := -ldflags '-s -w' -ldflags '-X github.com/alauda/kube-supv/version.BuildVersion=$(VERSION)'
-PLATFORMS := linux_amd64 linux_arm64 darwin_amd64 darwin_arm64
+PLATFORMS ?= linux_amd64 linux_arm64
 
 .PHONY: all
 all: fmt vet build
@@ -36,7 +36,6 @@ go.build.%:
 .PHONY: package
 package: build.all tar.all
 
-
 .PHONY: tar.all
 tar.all: $(foreach p,$(PLATFORMS),$(addprefix tar., $(p)))
 
@@ -47,3 +46,27 @@ tar.%:
 	$(eval ARCH := $(word 2,$(subst _, ,$(PLATFORM))))
 	$(eval OUTPUT_DIR := _output/$(OS)/$(ARCH))
 	tar czvf _output/kubesupv-$(OS)-$(ARCH).tgz -C $(OUTPUT_DIR) kubesupv
+
+gen: controller-gen
+	$(CONTROLLER_GEN) paths="./..." crd object output:crd:artifacts:config=config/crd
+
+ifeq (,$(shell go env GOBIN))
+GOBIN=$(shell go env GOPATH)/bin
+else
+GOBIN=$(shell go env GOBIN)
+endif
+
+controller-gen:
+ifeq (, $(shell which controller-gen))
+	@{ \
+	set -e ;\
+	CONTROLLER_GEN_TMP_DIR=$$(mktemp -d) ;\
+	cd $$CONTROLLER_GEN_TMP_DIR ;\
+	go mod init tmp ;\
+	go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.11.1 ;\
+	rm -rf $$CONTROLLER_GEN_TMP_DIR ;\
+	}
+CONTROLLER_GEN=$(GOBIN)/controller-gen
+else
+CONTROLLER_GEN=$(shell which controller-gen)
+endif
